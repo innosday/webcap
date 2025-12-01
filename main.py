@@ -1,58 +1,76 @@
 import cv2
+import time
+import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+# Picamera2 라이브러리 가져오기
+from picamera2 import Picamera2
+
 app = FastAPI()
 
-# CORS 설정 (노트북에서 접속 허용을 위해 필수)
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 모든 IP 허용 (보안 필요시 노트북 IP로 특정 가능)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 카메라 초기화 (0번은 보통 기본 연결된 카메라)
-camera = cv2.VideoCapture(0)
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+# === Picamera2 설정 ===
+try:
+    picam2 = Picamera2()
+    # 해상도 및 포맷 설정 (RGB888로 설정해야 OpenCV 변환이 쉽습니다)
+    config = picam2.create_video_configuration(main={"size": (640, 480), "format": "RGB888"})
+    picam2.configure(config)
+    picam2.start()
+    print("카메라가 성공적으로 시작되었습니다.")
+except Exception as e:
+    print(f"카메라 초기화 실패: {e}")
 
 def generate_frames():
     while True:
-        success, frame = camera.read()
-        if not success:
-            break
-        else:
-            # 프레임을 JPG로 인코딩
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
+        try:
+            # 1. Picamera2에서 이미지를 배열(numpy array) 형태로 캡처
+            frame = picam2.capture_array()
             
-            # MJPEG 포맷으로 스트리밍 (중요!)
+            # 2. Picamera는 RGB 순서, OpenCV는 BGR 순서를 쓰므로 색상 변환 필요
+            # 변환 안 하면 화면이 파랗게 나옵니다.
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            # 3. 이미지를 JPG로 인코딩 (압축)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            
+            # 4. 바이트로 변환하여 전송
+            frame_bytes = buffer.tobytes()
+            
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # 너무 빠른 루프 방지 (약 30fps 조절)
+            # time.sleep(0.01) 
+            
+        except Exception as e:
+            print(f"프레임 생성 에러: {e}")
+            break
 
 @app.get("/video_feed")
 async def video_feed():
-    """웹사이트의 <img> 태그 소스로 사용될 스트리밍 엔드포인트"""
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace;boundary=frame")
 
 @app.post("/action")
 async def take_action(request: Request):
-    """웹사이트 버튼 클릭 시 상호작용하는 엔드포인트"""
     data = await request.json()
     command = data.get("command")
+    print(f"명령 수신: {command}")
     
-    print(f"노트북에서 받은 명령: {command}")
-    
-    # 여기에 실제 하드웨어 제어 코드 추가 가능 (예: LED 켜기 등)
     if command == "capture":
-        return JSONResponse(content={"message": "사진 촬영 명령 수신됨", "status": "ok"})
+        return JSONResponse(content={"message": "Picamera 촬영 완료", "status": "ok"})
     
     return JSONResponse(content={"message": "알 수 없는 명령", "status": "fail"})
 
 if __name__ == "__main__":
-    # host="0.0.0.0"으로 설정해야 외부(노트북)에서 접속 가능
     uvicorn.run(app, host="0.0.0.0", port=8000)
