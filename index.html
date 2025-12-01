@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>라즈베리파이 컨트롤러</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; text-align: center; background-color: #f0f0f0; margin: 0; padding-top: 50px; }
+        
+        /* 영상 스타일 */
+        img { border: 3px solid #333; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); max-width: 90%; }
+        
+        /* 버튼 컨테이너 */
+        .controls { margin-top: 20px; display: flex; justify-content: center; gap: 15px; }
+        
+        /* 버튼 공통 스타일 */
+        button {
+            padding: 15px 25px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer;
+            color: white; font-weight: bold; transition: 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+
+        /* 개별 버튼 색상 */
+        .btn-capture { background-color: #007bff; } /* 파랑 */
+        .btn-on { background-color: #28a745; }      /* 초록 */
+        .btn-off { background-color: #6c757d; }     /* 회색 */
+        
+        /* 우측 상단 종료 버튼 스타일 */
+        .btn-exit {
+            position: absolute; top: 20px; right: 20px;
+            background-color: #dc3545; /* 빨강 */
+            width: 50px; height: 50px; font-size: 24px; padding: 0;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .btn-exit:hover { background-color: #c82333; }
+
+        #log { margin-top: 20px; font-size: 18px; font-weight: bold; color: #333; }
+    </style>
+</head>
+<body>
+
+    <button class="btn-exit" onclick="sendAction('shutdown')" title="서버 종료">X</button>
+
+    <h1>📡 라즈베리파이 관제 센터</h1>
+
+    <img src="http://172.30.3.44:8000/video_feed" alt="Camera Stream">
+    
+    <div class="controls">
+        <button class="btn-capture" onclick="sendAction('capture')">📷 사진 촬영</button>
+        <button class="btn-on" onclick="sendAction('led_on')">💡 LED 켜기</button>
+        <button class="btn-off" onclick="sendAction('led_off')">🌑 LED 끄기</button>
+    </div>
+
+    <p id="log">대기 중...</p>
+
+    <script>
+        // 중요: 라즈베리파이 IP로 변경하세요!
+        const PI_API_URL = "http://172.30.3.44:8000/action";
+
+        async function sendAction(commandType) {
+            const logElement = document.getElementById("log");
+            
+            if (commandType === 'shutdown') {
+                if (!confirm("정말 라즈베리파이 프로그램을 종료하시겠습니까?")) return;
+            }
+
+            try {
+                const response = await fetch(PI_API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ command: commandType })
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'shutdown') {
+                    logElement.innerText = "⛔ 서버가 종료되었습니다.";
+                    logElement.style.color = "red";
+                    // 영상 이미지 깨짐 방지를 위해 이미지 숨기기 (선택)
+                    document.querySelector("img").style.opacity = "0.5";
+                } else {
+                    logElement.innerText = "✅ " + result.message;
+                    logElement.style.color = "green";
+                }
+
+            } catch (error) {
+                console.error("에러 발생:", error);
+                logElement.innerText = "⚠️ 연결 실패 (서버가 꺼져있나요?)";
+                logElement.style.color = "orange";
+            }
+        }
+    </script>
+
+</body>
+</html>
